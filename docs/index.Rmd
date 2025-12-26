@@ -1,0 +1,285 @@
+---
+title: "Simple Sugar Forecast"
+output: html_document
+date: "2025-12-12"
+---
+
+---
+title: "Final Project"
+output: html_document
+date: "2025-11-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#libraries used:
+library(ggplot2)
+library(tseries)
+library(zoo)
+library(forecast)
+
+```
+
+#Goal:
+
+```{r}
+
+#Give supply chain procurement teams for companies in the United States advice on purchasing sugar inventory for the next 2 years based on a simple forecast. 
+
+```
+
+```{r}
+
+SD <- read.csv("C:/Users/annan/Downloads/PSUGAISAUSDM.csv")
+SD$dt <- as.Date(SD$observation_date, format = "%Y-%m-%d")
+tsdt <-ts(SD$PSUGAISAUSDM, start = c(1990, 1), frequency = 12)
+TSl <- diff(log(SD$PSUGAISAUSDM))
+
+
+```
+
+
+##Introdcution:
+```{r}
+#Describing variables, frequency, and time range:
+
+#There are only two variables within the data set: the independent variable, “Time,” with a monthly frequency, and the dependent variable, “Price of Sugar in Cents per U.S. Pound.” The data set's time range spans from January 1, 1990, to January 1, 2025, covering an exact 35-year period. 
+
+#explanation of the column : - observation_date --> Daily observation date - PSUGAISAUSDM --> Price of Sugar in Cents per U.S. Pound - dt --> Daily observation date in date format (created column) - rm --> Rolling Average of data set (created column) - rsd --> Rolling standard deviation (created column)
+
+head(SD, n=10) #first 10 rows of data
+
+
+
+```
+
+##Cleaning Dataset:
+```{r}
+
+colSums(is.na(SD)) #No missing values in PSUGAISAUSDM or observation_date --> no change needed (missing values in rm and rsd are handled later on)
+
+sum(duplicated(SD$dt)) #No duplicate dates 
+
+ggplot(SD, aes(x = "All Data",y=PSUGAISAUSDM)) + geom_boxplot() # used dummy x to plot all data
+
+Q1 <- quantile(SD$PSUGAISAUSDM, 0.25, na.rm = TRUE)
+Q3 <- quantile(SD$PSUGAISAUSDM, 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+lower_bound <- Q1 - 1.5 * IQR
+upper_bound <- Q3 + 1.5 * IQR
+
+outliers <- SD$PSUGAISAUSDM < lower_bound | SD$PSUGAISAUSDM > upper_bound
+sum(outliers)
+
+#It's shown that there is one main outlier that passes the maximum by a slight margin. Since there is only one outlier with minimal impact on the overall data set, I will retain it. Removing it could actually disrupt the data set unnecessarily. 
+
+
+```
+
+
+##Data Understanding:
+```{r, warning=FALSE}
+#Describing data set characteristics:
+
+
+# plot regular time series, rolling mean, rolling standard deviation
+SD$rm <- rollmean(SD$PSUGAISAUSDM, k = 30,fill = NA) 
+SD$rsd <- rollapply(SD$PSUGAISAUSDM, width = 30, sd,fill = NA)
+SD_noNA <- SD[!is.na(SD$rm) & !is.na(SD$rsd), ]
+
+
+ggplot(SD_noNA, aes(x = dt)) + geom_line(aes(y = PSUGAISAUSDM)) + 
+  geom_line(aes(y = rm), color="red",size = 1) + 
+  geom_line(aes(y = rsd), color="blue",size = 1) + 
+  labs(title = "Sugar Price Over Time", x = "Date", y = "Price per Pound")
+
+
+#To observe the characteristics of the data set, it was first plotted as a simple time series to recognize noticeable spikes, irregularities, and general trends. The black line represents the simple time series, showing a general positive trend with strong spikes indicating fluctuations within the 2010-2015 time range. 
+#To better understand the trend and slope, a 30-day moving average was plotted as the red line. The moving average confirmed the data had an overall positive trend, starting with low prices around 10 cents in 1990 and ending with higher prices around 20 cents in 2025. There is a gradual slope increase from 1990 to 2005 creating a small hill, followed by an abrupt spike into a steep slope from 2005 to 2010. After 2015, the slope steepness decreases slightly, and the slope is similar to its range from 1990 to 2005, albeit marginally steeper. There are a few plateaus where the slope changes from positive to negative; the most noticeable plateaus occur in 1995, 2011-2012, and 2020.
+#To understand volatility and the strength of trends, a 30-day moving standard deviation was plotted as the blue line. Initially, the data set exhibits low volatility, with only a few minor fluctuations. However, starting in 2005, volatility gradually increases until it spikes to 5 in 2010. Volatility has lowered slightly since 2010 but still remains high to the present. The trend appears confident from 1990 to 2005 and from 2018 to 2019, as the moving average has a sharp decline in these time frames while maintaining lower volatility. Conversely, the middle of the data set, from 2005 to 2018, and 2019 to the present, exhibits slope steepness increasing paired with high volatility, indicating that the trends during these periods are unstable and contain larger amounts of noise.
+
+
+# seasonal plot
+
+ggseasonplot(tsdt) + labs(title="Seasonal Plot for Sugar Prices")
+
+#A seasonal plot was used to observe consistent and changing patterns of seasonality across each year. Including all years, there is an overall inconsistent yearly pattern of sugar prices. When the years are broken down into separate groups, clear seasonality patterns can be observed. Years in which sugar prices start at 15 cents or lower in January often see prices decrease until May, and then increase until they surpass the original starting price by the end of the year in December. Years above 2007 appear to have no distinct yearly pattern compared to other years, behaving uniquely each year, suggesting that seasonal patterns are decreasing over time. In recent years, 2023 to 2025, a slight pattern is forming, with the years exhibiting a general, consistent positive trend, where sugar prices tend to be higher in December than at the beginning of the year in January. It could mean a new seasonal pattern is reforming, but it’s too soon to tell.
+
+
+
+```
+
+##Data Transformation & Decomposition:
+```{r}
+
+# Data Transformation:
+# Jarque Bera Tests and Residuals for before and after transformation to confirm effectiveness of transformation
+
+j <- jarque.bera.test(SD$PSUGAISAUSDM)
+jt <- jarque.bera.test(TSl)
+print(j)
+print(jt)
+TSLo <- lm(PSUGAISAUSDM ~ dt, data = SD)
+plot(TSLo)
+SDa <- SD[-1, ]
+TSL <- lm(TSl ~ dt, data = SDa)
+plot(TSL)
+
+# chosen transformation is diff(log())
+# The chosen transformation was initially based on the observations from the data set in Part A. The data set was observed to have high variance, so the first log() was applied to the data set, as log reduces variance and addresses right skewness. The data set was also observed to have a weak trend, so diff() was applied on top of the log() transformation to remove the trend and make the data stationary. When combined, both transformations resulted in a normal distribution of data. To confirm the effectiveness of the transformation, a Jarque-Bera test was conducted for comparison, comparing the results before and after the transformation. The Jarque-Bera Test before transformation had a p-value of 2.033e-08, while after the transformation, the test showed a p-value of 0.05734, which is above the recommended 0.05 p-value threshold for failing to reject H₀. Additionally, residuals for before and after the transformation were plotted for comparison. Before transformation, the Residuals vs. Fitted Values, Scale Location, and Residuals vs Leverage were clustered together, while after transformation, they were randomly distributed, indicating appropriate normality. Q-Q Residuals before transformation exhibited intense skewness on both sides. However, after the residuals were fitted to the line, the skewness was reduced on both sides, particularly on the right side. Although the after-transformation residuals weren’t perfect, they showed great improvement compared to the before-transformation, and appeared to be normal enough for data interpretation. 
+
+
+```
+
+```{r}
+# Decomposition of data set w/ transformed data set
+ot <- stl(diff(log(tsdt)), s.window = 7, robust = TRUE)
+plot(ot, main="Decomposition of Sugar Prices")
+
+# Chosen decomposition is STL decomposition
+#The chosen decomposition was STL decomposition, based on the observations from the data set in Part A. STL decomposition is suitable for data sets that exhibit evolving seasonality, have high variance, and contain long-term data. Classic decomposition is more suitable for data sets with consistent seasonality, minimal variance, and short-term data. Our data set was found to exhibit evolving seasonality, high variance, and a 35-year long-term trend. Overall, our data set aligns with the criteria for which STL decomposition is better suited, and would benefit from the flexibility that STL decomposition provides compared to classical decomposition. 
+
+#Seasonality Interpretation:
+#Based on evolving seasonality patterns, the decomposition of seasonality can be grouped into four sections with similar patterns: 1990-2005, 2005-2012, 2012-2020, and 2020-2025. The first sections, from 1990 to 2005, exhibit a consistent pattern with two peaks occurring at the beginning of the year, approximately in January and March, and one trough at the end of the year, approximately in November. The only thing that changes throughout the 15 years is the intensity of the peaks and troughs; the general patterns and timings of these peaks and troughs remain consistent. In the second section, from 2005 to 2012, the two peaks merge into one larger peak, while the trough remains unchanged. Throughout the years, the single peak slowly separates back into two separate peaks again, while also slowly increasing the intensity of the peaks and troughs. The pattern and intensity changes, but the timings still remain consistent. In the third section, from 2012 to 2020, the two peaks merge into one again, and the timings change, with the trough now occurring at the beginning of the year and the single peak at the end. As the years pass, the peak gradually shifts to occur during the middle of the year. The pattern and intensity remain constant throughout. In the fourth and final section, from 2020 to 2025, the intensity significantly reduces in the first year and then remains constant until 2025. The peak shifts also shift back to the end of the year, while the pattern remains constant throughout. 
+
+
+#Trend Interpretation:
+#Similar to seasonality, trend can also be split into four sections based on similar patterns: 1990-2000, 2000-2010, 2010-2014, and 2014-2025. The first section, from 1990 to 2000, exhibits steady growth, marked by one significant peak and three noticeable plateaus. The slope is generally consistent for the first 5 years, but then drops and remains constant for the remaining 5 years. The second section, from 2000 to 2010, starts off with an intense slope spike, leaving the remainder of the time period with a consistently steep slope. There are three noticeable peaks and two prominent valleys. The third section, from 2010 to 1014, starts with a gentle negative slope that lasts for three years and has a slight, gentle positive slope for approximately a year. The period is short but has an overall negative trend. The fourth section, from 2014 to 2025, begins with a steeper negative trend than the previous section. Although the trend soon becomes positive, the overall steepness of the slope remains constant throughout the section. The slope itself is more intense than the previous section, but it remains less steep than section two. There are two small peaks, two larger peaks, and three dips, eventually ending the trend on a negative slope. 
+
+
+#Residuals Interpretation:
+#Residuals are generally randomly distributed with no obvious trend or seasonality. There is generally consistent variance, and points are mostly centered around 0.0. Between 2000 and 2010, there was a slightly high variance, but it is still not high enough to be concerning or notable. There is also slight clustering around 1998-2000 and 2015 separately, but the clustering is not enough to be concerning or notable. 
+
+
+```
+
+
+##Forecast Model Implementation:
+```{r}
+#NAIVE Model:
+
+nmodel <- naive(tsdt)
+autoplot(nmodel)+
+  labs( y = "Sugar Price in cents per lb",
+       title = "NAIVE Global Price of Sugar forecast")
+
+# Chose to do a simple Naive model because data has no clear trend or seasonality, so we can treat it as a random walk.
+
+#NAIVE model diagnostics:
+
+checkresiduals(nmodel)
+Pacf(residuals(nmodel), main = "PACF of Residuals")
+
+
+#Ljung-Box test: The p-value rests at 0.00544, which is much smaller than the preferred 0.05, indicating that there is still a correlation between residuals.
+
+#ACF: Slight Spikes at lag 1, 8, and 12 crossing the 95% confidence line, showing not all patterns have been captured. There are no obvious patterns observed, so, according to the ACF, the Naive model is only a reasonable fit.
+
+#Residuals: Residuals are generally fitted around 0 and randomly distributed, but do have spikes at certain time intervals. During 2009-2012 and 2022-2025, there are several significant spikes, one even reaching the value -5.0. There aren't any obvious patterns to be concerned about. The time series of the residuals is okay, although not great due to the sudden large spikes, but otherwise well-fitted. The histogram is slightly bimodal, with a distribution that is generally symmetric. There aren't any significant tails either. The only somewhat concerning aspect of the residuals histogram is the presence of modes; otherwise, the histogram indicates that the residuals are good.
+
+#PACF: The PACF is very similar to the ACF, with significant lags at 1 and 12 and no evident pattern. Aside from the significant lags that pass the confidence line, the PACF appears satisfactory.
+
+
+
+
+```
+
+```{r}
+#ARIMA Model:
+modela <- auto.arima(tsdt)
+autoplot(forecast(modela, h=24))+
+  labs( y = "Sugar Price in cents per lb",
+       title = "ARIMA Global Price of Sugar forecast")
+modela #plot general summary of ARIMA
+#Used auto.arima to let program decide values --> values decided were (0,1,1)(0,0,1)(12)
+
+#Model Diagnostics:
+checkresiduals(modela)
+Pacf(residuals(modela), main = "PACF of Residuals")
+
+#Ljung-Box test: The p-value rests at 0.7895, which is greater than the needed 0.05 p-value needed in order to fail to reject Ho. The test indicates that there is likely to be little to no correlation between residuals.
+
+
+#ACF: Small spike at lag 8, which passes the confidence bounds, but by a small amount. There are no obvious patterns showing the ARIMA model is a good fit.
+
+#Residuals: Residuals are generally fitted around 0 and randomly distributed, but do have spikes at certain time intervals. During 2009-2012 and 2022-2025, there are several significant spikes, one even reaching the value -5.1. The time series of the residuals is okay, although they are generally centered around 0 and randomly distributed; the intervals with significant spikes in between are concerning. The residuals histogram shows they are normally distributed and slightly bimodal, with the left mode being marginally larger than the right. Aside from the histogram being slightly bimodal, the residuals are acceptable. 
+
+#PACF: Similar to ACF, PACF has a slight spike at lag 8 that crosses the confidence bounds, but by a small amount. Otherwise, there are no apparent patterns showing the ARIMA model is a good fit.
+
+
+
+
+```
+
+```{r}
+#ETS Model:
+
+modele <- ets(tsdt)
+autoplot(forecast(modele)) +
+  labs( y = "Sugar Price in cents per lb",
+       title = "ETS Global Price of Sugar forecast")
+modele #plot general summary of ETS
+#ets model automatically decides best input values --> values decided were (M,N,N)
+
+#Model Diagnostics:
+checkresiduals(modele)
+Pacf(residuals(modele), main = "PACF of Residuals")
+
+#Ljung-Box test: The p-value rests at 0.008157, which is much smaller than the preferred 0.05, indicating that there is still a correlation between residuals.
+
+#ACF: There is a significant spike that well passes the confidence bounds at lag 1, but otherwise the ACF shows no evident pattern. The ACF shows a good fit for the ETS model. 
+
+#Residuals: The residuals appear to be randomly distributed and generally centered around 0. Although there are a few spikes, all spikes are still in close range to 0, so they are acceptable. The residual time series for the ETS model is the best out of all three models. The residuals histogram is slightly bimodal with a slight right skew. Although the time series for the residuals is excellent, the histogram isn't as good.
+
+#PACF: The PACF is similar to the ACF, where there is a significant spike at lag 1 and nowhere else. There are also no obvious patterns showing the ETS model is a good fit.
+
+
+
+```
+
+```{r}
+#Overall Forecast Comparisons:
+acn <- accuracy(nmodel)
+acm <- accuracy(modela)
+acme <- accuracy(modele)
+
+MA <- rbind(
+  acn = acn,
+  acm = acm,
+  acme = acme
+)
+rownames(MA) <- c("Naive model", "ARIMA model", "ETS model")
+MA 
+
+RMSEeval <- (1.05335/mean(tsdt))*100
+print(paste("RMSE mean evaluation:", RMSEeval))
+
+#filling in values based off previously found summary statistics 
+ACNa <- c("N/A","N/A","N/A") #N/A because AIC, AICc, and BIC are not applicable to Naive
+ACMa <- c("1242.93","1242.99","1255.05")
+ACMEa <- c("2502.140","2502.197","2514.268")
+
+MAA <- data.frame (Naive_model=ACNa,ARIMA_model=ACMa,ETS_model=ACMEa)
+MAA_t <- as.data.frame(t(MAA))
+colnames(MAA_t) <- c("AIC", "AICc", "BIC")
+
+MAA_t
+
+
+
+# First, looking at the forecast accuracy values for ME values, the ARIMA model is the best as it's the closest to 0, showing it has the most unbiased forecast out of the three. The ARIMA has the smallest RMSE value at 1.05355. The RMSE evaluation for the ARIMA model is favorable because it is only 7.73% of the mean, indicating that the model's predictions are close to the actual values. The ARIMA model also has the smallest MAE value by a small margin, which is smaller than the RMSE value, indicating that there are only small errors. The MPE value closest to 0% is also the ARIMA model, even though the -0.1359% value shows very slight over-forecasting. The ARIMA MAPE value is also the smallest at 5.66%, which is a good value indicating effective forecasting. The MASE values for all three models are below one, indicating that all models outperform the naive benchmark. The ACF1 value of the ARIMA model is closest to 0 at 0.00247, indicating that the model residuals exhibit no patterns and behave like white noise. Examining the AIC, AICc, and BIC, only the ARIMA and ETS models are comparable, as these three criteria are not applicable to the Naive model. The ARIMA model yields lower values for all three metrics (AIC, AICc, and BIC) compared to the ETS model, indicating that the ARIMA model strikes a better balance between model fit and complexity. Overall, through accuracy measures, the ARIMA shows that it's not only a better model than the ETS and Naive models, but also a good fit for the data set. As a result, ARIMA is the final chosen forecast.
+
+```
+
+##Real World Implications:
+
+```{r}
+
+#Describing chosen forecast: The forecast mean shows an overall slight decrease in price from 18.9 cents to approximately 18 cents. Around July 2025, there is a slight increase back to approximately 18.9 cents, which quickly returns to approximately 18 cents by the end of the year. The forecast mean remains at approximately 18 cents for the remainder of the 2-year forecast, which encompasses the entirety of 2026. The confidence interval increases as time passes due to uncertainty increasing. The confidence interval itself is very large throughout the forecast, having an approximate ending 80% confidence range of 9-27 cents and an approximate ending 95% confidence range of 5-31 cents.
+
+#Action Plan: While the forecast mean indicates a stable sugar price of approximately 18 cents, the large confidence interval suggests high uncertainty in future global sugar prices. To plan for uncertainty, procurement teams need to diversify their suppliers globally to prevent supplier shock that can originate from specific locations. With a highly diversified supplier portfolio, you also receive more information about the market from different perspectives, allowing the procurement team to stay informed and plan ahead. It's also good practice to make flexible contracts with these suppliers, ensuring a price floor of 9 cents, a price ceiling of 26 cents, and a mean price of 20 cents (a slight premium compared to the forecast mean) to protect production. Next, the procurement team should invest in safety stock to prevent stockouts. Based on the mean forecast, it would be beneficial to delay purchases from late August to early September to avoid paying for the peak of the sugar price increase. Delaying sugar purchases for the entirety of the 6-month range, with sugar prices increasing from the average of 18 cents, is unrealistic and unnecessary for a small price increase.
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
