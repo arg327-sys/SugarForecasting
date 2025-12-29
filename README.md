@@ -1,5 +1,5 @@
 # Global Sugar Prices Forecasting
-Using R, cleaned, transformed, and decomposed historical sugar price data to build forecasts supporting procurement timing and risk reduction decisions 
+Using R, cleaned, transformed, and decomposed historical sugar price data to build forecasts supporting procurement timing and risk reduction decisions.
 
 **Goal:** Give supply chain procurement teams for companies in the United States advice on purchasing sugar inventory for the next 2 years based on a simple forecast.
 
